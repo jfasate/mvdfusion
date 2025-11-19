@@ -3,35 +3,25 @@ import glob
 import torch
 import imageio
 import json
+import numpy as np
+from PIL import Image
 from einops import rearrange
 from pytorch3d.renderer import PerspectiveCameras, look_at_view_transform
 
 
-AZIMUTHS_B64 = [0.39269909262657166, 1.1780972480773926, 1.9634954929351807, 2.7488934993743896, 
-                3.5342917442321777, 4.319689750671387, 5.105088233947754, 5.890486240386963, 0.0, 
-                0.39269909262657166, 0.7853981852531433, 1.1780972480773926, 1.5707963705062866, 
-                1.9634953737258911, 2.356194496154785, 2.7488934993743896, 3.1415927410125732, 3.5342917442321777, 
-                3.9269907474517822, 4.319689750671387, 4.71238899230957, 5.105088233947754, 5.497786998748779, 
-                5.890486240386963, 0.39269909262657166, 1.1780972480773926, 1.9634954929351807, 2.7488934993743896, 
-                3.5342917442321777, 4.319689750671387, 5.105088233947754, 5.890486240386963, 0.0, 0.7853981852531433, 
-                1.5707963705062866, 2.356194496154785, 3.1415927410125732, 3.9269907474517822, 4.71238899230957, 
-                5.497786998748779, 0.0, 0.39269909262657166, 0.7853981852531433, 1.1780972480773926, 1.5707963705062866, 
-                1.9634953737258911, 2.356194496154785, 2.7488934993743896, 3.1415927410125732, 3.5342917442321777, 
-                3.9269907474517822, 4.319689750671387, 4.71238899230957, 5.105088233947754, 5.497786998748779, 
-                5.890486240386963, 0.39269909262657166, 1.1780972480773926, 1.9634954929351807, 2.7488934993743896, 
-                3.5342917442321777, 4.319689750671387, 5.105088233947754, 5.890486240386963]
+AZIMUTHS_16 = [
+    0.0, 0.7853981852531433, 1.5707963705062866, 2.356194496154785,
+    3.1415927410125732, 3.9269907474517822, 4.71238899230957, 5.497786998748779,
+    0.39269909262657166, 1.1780972480773926, 1.9634954929351807, 2.7488934993743896,
+    3.5342917442321777, 4.319689750671387, 5.105088233947754, 5.890486240386963
+]
 
-ELEVATIONS_B64 = [-0.1745329201221466, -0.1745329201221466, -0.1745329201221466, -0.1745329201221466, 
-                  -0.1745329201221466, -0.1745329201221466, -0.1745329201221466, -0.1745329201221466, 
-                  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
-                  0.1745329201221466, 0.1745329201221466, 0.1745329201221466, 0.1745329201221466, 0.1745329201221466, 
-                  0.1745329201221466, 0.1745329201221466, 0.1745329201221466, 0.3490658402442932, 0.3490658402442932, 
-                  0.3490658402442932, 0.3490658402442932, 0.3490658402442932, 0.3490658402442932, 0.3490658402442932, 
-                  0.3490658402442932, 0.5235987901687622, 0.5235987901687622, 0.5235987901687622, 0.5235987901687622, 
-                  0.5235987901687622, 0.5235987901687622, 0.5235987901687622, 0.5235987901687622, 0.5235987901687622, 
-                  0.5235987901687622, 0.5235987901687622, 0.5235987901687622, 0.5235987901687622, 0.5235987901687622, 
-                  0.5235987901687622, 0.5235987901687622, 0.6981316804885864, 0.6981316804885864, 0.6981316804885864, 
-                  0.6981316804885864, 0.6981316804885864, 0.6981316804885864, 0.6981316804885864, 0.6981316804885864]
+ELEVATIONS_16 = [
+    0.5235987901687622, 0.5235987901687622, 0.5235987901687622, 0.5235987901687622,
+    0.5235987901687622, 0.5235987901687622, 0.5235987901687622, 0.5235987901687622,
+    0.5235987901687622, 0.5235987901687622, 0.5235987901687622, 0.5235987901687622,
+    0.5235987901687622, 0.5235987901687622, 0.5235987901687622, 0.5235987901687622
+]
 
 def _unscale_depth( depths):
     shift = 0.5
@@ -74,8 +64,8 @@ class Objaverse(torch.utils.data.Dataset):
 
         print(f'loaded {len(self.subset_list)} entries from {subset}|{stage}')
 
-        self.azimuths_b64 = torch.tensor(AZIMUTHS_B64)
-        self.elevations_b64 = torch.tensor(ELEVATIONS_B64)
+        self.azimuths_16 = torch.tensor(AZIMUTHS_16)
+        self.elevations_16 = torch.tensor(ELEVATIONS_16)
         self.__init_fixed_set_cameras()
 
     def __len__(self):
@@ -88,24 +78,35 @@ class Objaverse(torch.utils.data.Dataset):
         scene_list = glob.glob(scene_dir + '*_rgb.jpg')
 
         if self.camera_type == 'fixed_set':
-            assert len(scene_list) == 64
+            # Support both 16-view and 64-view datasets
+            num_views = len(scene_list)
+            if num_views not in [16, 64]:
+                raise ValueError(f"Expected 16 or 64 views but found {num_views} in {scene_dir}")
 
         #@ GET BATCH IDX
         if self.fix_elevation:
-            # batch_idx = torch.arange(8,8+16, step=2)
-            if self.stage == 'train':
-                batch_idx = torch.arange(8+16+8+8, 8+16+8+8+16, step=1) #step 2
+            num_views = len(scene_list)
+            if num_views == 16:
+                # For 16-view dataset at single elevation, use all views
+                if self.stage == 'train':
+                    batch_idx = torch.arange(0, 16, step=1)
+                else:
+                    batch_idx = torch.arange(0, 16, step=1)
+            elif num_views == 64:
+                # For 64-view dataset, use views at 30° elevation (indices 40-56)
+                if self.stage == 'train':
+                    batch_idx = torch.arange(8+16+8+8, 8+16+8+8+16, step=1)
+                else:
+                    batch_idx = torch.arange(8+16+8+8, 8+16+8+8+16, step=1)
             else:
-                batch_idx = torch.arange(8+16+8+8, 8+16+8+8+16, step=1)
-
+                raise ValueError(f"Unsupported number of views: {num_views}")
         else:
             if self.stage == 'test' or self.sample_batch_size == None:
                 batch_idx = torch.arange(len(scene_list))
             elif self.sample_batch_size is not None:
-                batch_idx = torch.randperm(scene_list)[:self.sample_batch_size]
+                batch_idx = torch.randperm(len(scene_list))[:self.sample_batch_size]
             else:
                 raise NotImplementedError
-                
 
         #@ LOAD DATA
         images, masks, depths = self._load_images(scene_dir, batch_idx)
@@ -133,46 +134,56 @@ class Objaverse(torch.utils.data.Dataset):
 
         return frame_dict
 
-    def _load_images(self, image_dir, batch_idx):
+    def _load_images(self, scene_dir, batch_idx):
 
-        rgb_list = []
-        mask_list = []
-        depth_list = []
+        images = []
+        masks = []
+        depths = []
 
         for idx in batch_idx:
-            rgb_addr = f'{image_dir}/{idx:03d}_rgb.jpg'
-            rgb = torch.tensor(imageio.v3.imread(rgb_addr), dtype=torch.float32) / 255.0
-            rgb_list.append(rgb)
+            
+            #@ LOAD RGB
+            img_addr = scene_dir + f'{idx:03d}_rgb.jpg'
+            img = Image.open(img_addr).convert('RGB')
+            img = torch.tensor(np.array(img).astype(np.float32), dtype=torch.float32) / 255.0
+            images.append(img)
 
-            if self.load_depth or self.load_mask:
-                depth_addr = f'{image_dir}/{idx:03d}_depth.png'
-                depth = torch.tensor(imageio.v3.imread(depth_addr), dtype=torch.float32) / 255.0
-                depth_list.append(depth)
+            #@ LOAD DEPTH
+            if self.load_depth:
+                depth_addr = scene_dir + f'{idx:03d}_depth.png'
+                depth_img = imageio.v3.imread(depth_addr)
+                
+                # Handle both 16-bit and 8-bit depth images
+                if depth_img.dtype == np.uint16:
+                    # 16-bit depth: normalize to [0, 1]
+                    depth = torch.tensor(depth_img.astype(np.float32), dtype=torch.float32) / 65535.0
+                else:
+                    # 8-bit depth: normalize to [0, 1]
+                    depth = torch.tensor(depth_img, dtype=torch.float32) / 255.0
+                
+                depths.append(depth)
 
+            #@ LOAD MASK
             if self.load_mask:
-                mask_addr = f'{image_dir}/{idx:03d}_mask.jpg'
-                mask = torch.tensor(imageio.v3.imread(mask_addr), dtype=torch.float32) / 255.0
-                mask_list.append(mask)
+                mask_addr = scene_dir + f'{idx:03d}_mask.jpg'
+                mask = Image.open(mask_addr).convert('L')
+                mask = torch.tensor(np.array(mask).astype(np.float32), dtype=torch.float32) / 255.0
+                masks.append(mask)
 
-        images = torch.stack(rgb_list, dim=0)
-        images = rearrange(images, 'b h w c -> b c h w')
-
-        depths = None
-        if self.load_depth:
-            depths = torch.stack(depth_list, dim=0)
-            depths = rearrange(depths[...,:1], 'b h w c -> b c h w')
-
-        masks = None
-        if self.load_mask:
-            masks = torch.stack(mask_list, dim=0)
-            masks = rearrange(masks, 'b h w -> b () h w')
+        images = torch.stack(images).permute(0,3,1,2) # (B, 3, H, W)
         
+        if self.load_depth:
+            depths = torch.stack(depths).unsqueeze(1) # (B, 1, H, W)
+        
+        if self.load_mask:
+            masks = torch.stack(masks).unsqueeze(1) # (B, 1, H, W)
+
         return images, masks, depths
 
     def _load_fixed_set_cameras(self, batch_idx):
 
-        azimuth = self.azimuths_b64[batch_idx]
-        elevation = self.elevations_b64[batch_idx]
+        azimuth = self.azimuths_16[batch_idx]
+        elevation = self.elevations_16[batch_idx]
         
         R = self.cameras_b64.R[batch_idx]
         T = self.cameras_b64.T[batch_idx]
@@ -199,9 +210,9 @@ class Objaverse(torch.utils.data.Dataset):
         principal_point = ((0,0),)
 
         #@ INIT EXTRINSICS
-        x = torch.cos(self.azimuths_b64)*torch.cos(self.elevations_b64)
-        y = torch.sin(self.azimuths_b64)*torch.cos(self.elevations_b64)
-        z = torch.sin(self.elevations_b64)
+        x = torch.cos(self.azimuths_16)*torch.cos(self.elevations_16)
+        y = torch.sin(self.azimuths_16)*torch.cos(self.elevations_16)
+        z = torch.sin(self.elevations_16)
         cam_pts = torch.stack([x,y,z],-1) * distances
         
         if self.up_vec == 'z':
@@ -211,8 +222,8 @@ class Objaverse(torch.utils.data.Dataset):
         elif self.up_vec == 'y':
             R, T = look_at_view_transform(
                 dist=distances,
-                azim=self.azimuths_b64 * 180 / torch.pi + 90,
-                elev=self.elevations_b64 * 180 / torch.pi,
+                azim=self.azimuths_16 * 180 / torch.pi + 90,
+                elev=self.elevations_16 * 180 / torch.pi,
                 up=((0, 1, 0),),
             )
         else: raise NotImplementedError
