@@ -23,9 +23,9 @@ model:
         in_channels: 5
         input_size: 32
         output_dim: 768
-        num_layers: 3
+        num_layers: 2
         z_near_far_scale: 0.8
-        n_pts_per_ray: 3
+        n_pts_per_ray: 1
 
     unet_config:
       target: mvdfusion.unet.UNetModel 
@@ -78,19 +78,19 @@ dataset:
   scene_batch_size: 1
   params:
     root: 'objaverse/renders/'
-    subset: '400k'
+    subset: '15k'
     fix_elevation: true
     sample_batch_size: 16
     image_size: 256
     load_depth: true
 
 trainer:
-  epochs: 200
+  epochs: 50
   lr: 0.0001
-  train_batch_size: 5
+  train_batch_size: 1
   input_batch_size: 1
   random_views: true
-  grad_accum_step: 4
+  grad_accum_step: 32
   reset_optimizer: false
 
 inference:
@@ -103,7 +103,7 @@ inference:
   stage: 'test'
 
 saver:
-  exp_dir: 'exps/mvd_fusion_train/'
+  exp_dir: 'exps/mvd_15k_train/'
   ckpt_dir: 'checkpoints/'
   log_dir: 'slurmlogs/'
   vis_dir: 'vis_train/'
