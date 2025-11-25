@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import datetime
 import time
 from omegaconf import OmegaConf
-
+from torch.cuda.amp import autocast, GradScaler
 import torch
 from pytorch3d.renderer import PerspectiveCameras
 
@@ -18,8 +18,7 @@ from pytorch_lightning import seed_everything
 
 from utils.common_utils import rank_zero_print, AverageMeter, uncollate
 from utils.data_sampler_utils import StatefulDistributedSampler
-from utils.vis_utils import visualize_image, visualize_image_diffusion, visualize_image_depth_diffusion
-
+from utils.vis_utils import visualize_image_depth_diffusion
 
 from utils.load_model import instantiate_from_config
 
@@ -73,6 +72,7 @@ def train(gpu, args):
         print(f'training from epoch: {epoch} | local_step: {local_step} | global_step: {global_step}')
 
     #@ TRAINING LOOP
+    scaler = GradScaler()
     for ep in range(start_epoch, max_epoch):
 
         #@ RESET DATA SAMPLER
@@ -83,16 +83,18 @@ def train(gpu, args):
 
         #@ EPOCH LOOP
         for batch in train_loader:
-            
+            torch.cuda.empty_cache()
             batch = uncollate(batch, to_device=f'cuda:{gpu}')
 
             #@ TRAINING STEP
-            loss = model(batch, trainer_config)
+            with autocast():
+                loss = model(batch, trainer_config)
             
             #@ BACKWARD PASS
             optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
 
 
             #@ VISUALIZATION AND SAVING
