@@ -35,6 +35,8 @@ For bugs and issues, please open an issue on GitHub and I will try to address it
 Please follow the environment setup guide in [ENVIRONMENT.md](ENVIRONMENT.md).
 
 ## Dataset
+Prepare Dataset has been provided on the [Hugging Face](https://huggingface.co/datasets/jfasate/objaverse)
+
 We provide two evaluation dataset, Google Scanned Objects (GSO) and SyncDreamer in-the-wild dataset. 
 
 1. (optional) Download GSO evaluation set [here](https://drive.google.com/file/d/1UzvIWibyyDXmoCMNysTwqd5tbbk2LYr4/view?usp=sharing) and extract it to `demo_datasets/gso_eval`.
